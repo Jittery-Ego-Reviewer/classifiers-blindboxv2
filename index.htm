@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>量詞盲盒大冒險 (Classifier Blind Box Adventure)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+HK:wght@400;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans HK', sans-serif;
+            background-color: #FDFD96; /* Pastel Yellow */
+            overflow-x: hidden;
+        }
+
+        /* Custom Animations */
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        @keyframes popOut {
+            0% { transform: scale(0) translateY(50px); opacity: 0; }
+            70% { transform: scale(1.2) translateY(-20px); opacity: 1; }
+            100% { transform: scale(1) translateY(0); opacity: 1; }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px) rotate(-5deg); }
+            75% { transform: translateX(5px) rotate(5deg); }
+        }
+
+        .animate-float { animation: float 3s ease-in-out infinite; }
+        .animate-pop { animation: popOut 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        .animate-shake { animation: shake 0.4s ease-in-out; }
+
+        /* Box Styling */
+        .box-container {
+            position: relative;
+            width: 240px;
+            height: 240px;
+            margin: 0 auto;
+            transition: all 0.3s ease;
+        }
+
+        .box-body {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 160px;
+            background: linear-gradient(135deg, #FFB7B2 0%, #FFDAC1 100%);
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            border: 4px solid #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 3rem;
+            z-index: 10;
+            overflow: hidden; /* Keeps decorations inside the rounded borders */
+        }
+
+        .box-lid {
+            position: absolute;
+            top: 20px;
+            left: -10px;
+            width: 260px;
+            height: 80px;
+            background: linear-gradient(135deg, #B5EAD7 0%, #C7CEEA 100%);
+            border-radius: 12px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border: 4px solid #fff;
+            z-index: 20;
+            transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .box-lid::after {
+            content: '';
+            position: absolute;
+            width: 80%;
+            height: 0;
+            border-top: 4px dashed #fff;
+            top: 50%;
+            transform: translateY(-50%);
+            opacity: 0.8;
+        }
+
+        .box-lid.open {
+            transform: translateY(-120px) rotate(15deg) scale(1.1);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Slicing Canvas */
+        #sliceCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 30;
+            cursor: crosshair;
+            touch-action: none; /* Prevent scrolling while slicing */
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            width: 40px;
+            height: 100%;
+            background-color: #fff;
+            border-radius: 20px;
+            border: 4px solid #C7CEEA;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column-reverse;
+        }
+
+        .progress-fill {
+            width: 100%;
+            background-color: #B5EAD7;
+            transition: height 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            height: 0%;
+        }
+        
+        .progress-step {
+            height: 10%;
+            width: 100%;
+            border-bottom: 2px dashed rgba(255,255,255,0.5);
+            box-sizing: border-box;
+        }
+
+        /* Confetti */
+        .confetti {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: #FFB7B2;
+            animation: fall linear forwards;
+        }
+        @keyframes fall {
+            to { transform: translateY(100vh) rotate(720deg); }
+        }
+    </style>
+</head>
+<body class="text-gray-800 flex flex-col min-h-screen">
+
+    <!-- AUDIO CONTEXT (Synthesized sounds, no external assets needed) -->
+    <script>
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function playTone(freq, type, duration, vol=0.1) {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        const sounds = {
+            slice: () => {
+                if(audioCtx.state === 'suspended') audioCtx.resume();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.2);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.2);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.2);
+            },
+            pop: () => {
+                playTone(400, 'sine', 0.1, 0.2);
+                setTimeout(() => playTone(600, 'sine', 0.15, 0.2), 50);
+            },
+            correct: () => {
+                playTone(523.25, 'sine', 0.1, 0.1); // C5
+                setTimeout(() => playTone(659.25, 'sine', 0.1, 0.1), 100); // E5
+                setTimeout(() => playTone(783.99, 'sine', 0.3, 0.15), 200); // G5
+            },
+            incorrect: () => {
+                playTone(300, 'sawtooth', 0.2, 0.05);
+                setTimeout(() => playTone(250, 'sawtooth', 0.3, 0.05), 150);
+            },
+            empty: () => {
+                playTone(200, 'triangle', 0.3, 0.1);
+                setTimeout(() => playTone(150, 'triangle', 0.5, 0.1), 250);
+            },
+            tada: () => {
+                playTone(523.25, 'square', 0.1, 0.05);
+                setTimeout(() => playTone(659.25, 'square', 0.1, 0.05), 150);
+                setTimeout(() => playTone(783.99, 'square', 0.1, 0.05), 300);
+                setTimeout(() => playTone(1046.50, 'square', 0.5, 0.05), 450);
+            }
+        };
+    </script>
+
+    <!-- UI SCREENS -->
+
+    <!-- 1. START SCREEN -->
+    <div id="startScreen" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#FDFD96] p-6 text-center overflow-y-auto">
+        <h1 class="text-5xl font-black text-red-600 mb-6 drop-shadow-md tracking-wider">量詞盲盒大冒險</h1>
+        <div class="bg-white/80 p-8 rounded-3xl shadow-xl max-w-lg w-full border-4 border-[#B5EAD7]">
+            <h2 class="text-2xl font-bold mb-4 text-gray-700">遊戲玩法 (Instructions):</h2>
+            <ul class="text-left text-lg space-y-3 mb-8 text-gray-600 font-medium">
+                <li>👆 1. 在盲盒頂部的虛線上<span class="text-[#FFB7B2] font-bold">畫一條直線</span>切開它！</li>
+                <li>👀 2. 看看抽中甚麼禮物和數量。</li>
+                <li>🗣️ 3. <span class="text-[#FFB7B2] font-bold">大聲講出</span>正確的數量和物品（例如：「三個蘋果」）。</li>
+                <li>👨‍⚕️ 4. 治療師或家長會幫你按 ✅ 或 ❌ 評分！</li>
+            </ul>
+            <button id="startBtn" class="bg-[#FFB7B2] hover:bg-[#ff9d96] text-white font-bold py-4 px-12 rounded-full text-2xl shadow-lg transform transition hover:scale-105 active:scale-95">
+                開始遊戲 (Start)
+            </button>
+        </div>
+    </div>
+
+    <!-- 2. GAME SCREEN -->
+    <div id="gameScreen" class="hidden flex-1 flex flex-col md:flex-row min-h-screen relative">
+        
+        <!-- Main Game Area -->
+        <div class="flex-1 flex flex-col relative">
+            
+            <!-- Header Status -->
+            <div class="p-4 md:p-6 flex flex-col sm:flex-row justify-between items-center gap-4 z-10">
+                <button id="homeBtn" class="flex items-center gap-2 text-lg font-bold bg-white/80 hover:bg-white text-gray-700 px-4 py-2 rounded-full shadow-sm border-2 border-[#FFB7B2] transition transform hover:scale-105 active:scale-95">
+                    🏠 主頁 (Home)
+                </button>
+                <div class="flex flex-wrap justify-center gap-4">
+                    <div class="text-xl md:text-2xl font-bold text-[#FFB7B2] bg-white/60 px-4 md:px-6 py-2 rounded-full shadow-sm">
+                        回合 (Round): <span id="roundDisplay">1</span> / 10
+                    </div>
+                    <div class="text-xl md:text-2xl font-bold text-[#B5EAD7] bg-white/60 px-4 md:px-6 py-2 rounded-full shadow-sm">
+                        答對: <span id="scoreDisplay">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Game Center -->
+            <div class="flex-1 flex flex-col items-center justify-center relative pb-20">
+                
+                <!-- Instruction Hint -->
+                <div id="sliceHint" class="text-xl font-bold text-gray-500 mb-8 animate-float">
+                    在虛線上畫一條直線切開盲盒！ ✂️
+                </div>
+
+                <!-- Box Area -->
+                <div class="box-container" id="boxContainer">
+                    <div class="box-body" id="boxBody">
+                        <!-- Cute Decorations -->
+                        <span class="absolute top-2 left-2 text-3xl opacity-80 transform -rotate-12 pointer-events-none">🎁</span>
+                        <span class="absolute bottom-2 right-2 text-3xl opacity-80 transform rotate-12 pointer-events-none">🎁</span>
+                        <span class="absolute top-8 right-4 text-2xl opacity-60 pointer-events-none">🎁</span>
+                        <span class="absolute bottom-6 left-5 text-2xl opacity-80 pointer-events-none">🎁</span>
+                        
+                        <!-- Main Text -->
+                        <span class="text-white font-black drop-shadow-md tracking-widest z-10" style="text-shadow: 2px 2px 4px rgba(255, 100, 100, 0.4);">盲盒</span>
+                    </div>
+                    <div class="box-lid" id="boxLid"></div>
+                    <canvas id="sliceCanvas"></canvas>
+                </div>
+
+                <!-- Items Reveal Area (Hidden initially) -->
+                <div id="revealArea" class="hidden absolute inset-0 flex flex-col items-center justify-center bg-[#FDFD96]/90 z-40 backdrop-blur-sm">
+                    
+                    <div id="itemDisplay" class="text-7xl mb-4 flex flex-wrap justify-center gap-2 max-w-md">
+                        <!-- Emojis go here -->
+                    </div>
+                    
+                    <div id="itemText" class="text-4xl font-black text-gray-700 mb-12 bg-white px-8 py-4 rounded-3xl shadow-md border-4 border-[#FFDAC1]">
+                        <!-- e.g. x 3 -->
+                    </div>
+
+                    <div id="emptyMessage" class="hidden text-4xl font-black text-gray-500 mb-12 bg-white px-8 py-4 rounded-3xl shadow-md border-4 border-gray-300">
+                        哎呀！盲盒係空嘅！💨
+                    </div>
+
+                    <!-- Controls for Therapist -->
+                    <div id="therapistControls" class="flex gap-8">
+                        <button id="correctBtn" class="bg-[#B5EAD7] hover:bg-[#9adbc5] text-white p-6 rounded-full shadow-lg transform transition hover:scale-110 active:scale-95 border-4 border-white flex flex-col items-center justify-center w-32 h-32">
+                            <span class="text-5xl">✅</span>
+                            <span class="text-sm font-bold mt-2 text-green-700">正確</span>
+                        </button>
+                        <button id="incorrectBtn" class="bg-[#FFB7B2] hover:bg-[#ff9d96] text-white p-6 rounded-full shadow-lg transform transition hover:scale-110 active:scale-95 border-4 border-white flex flex-col items-center justify-center w-32 h-32">
+                            <span class="text-5xl">❌</span>
+                            <span class="text-sm font-bold mt-2 text-red-700">不正確</span>
+                        </button>
+                    </div>
+
+                    <button id="nextRoundBtn" class="hidden mt-8 bg-[#C7CEEA] hover:bg-[#b0b8dd] text-white font-bold py-3 px-8 rounded-full text-xl shadow-md transform transition hover:scale-105">
+                        下一回合 (Next)
+                    </button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Right Side Progress Bar -->
+        <div class="w-full md:w-32 bg-white/40 border-t-4 md:border-t-0 md:border-l-4 border-white flex flex-row md:flex-col items-center justify-center py-4 md:py-6 shadow-inner z-10 min-h-[100px] md:min-h-0">
+            <h3 class="text-lg font-black text-gray-500 mb-0 md:mb-4 mr-4 md:mr-0 tracking-widest md:writing-mode-vertical" style="writing-mode: horizontal-tb; @media (min-width: 768px) { writing-mode: vertical-rl; }">進度 (Progress)</h3>
+            <div class="flex-1 w-full flex justify-center pb-0 md:pb-4 px-4 md:px-0 h-8 md:h-auto">
+                <div class="progress-container md:h-full w-full md:w-10 h-6 flex-row md:flex-col-reverse rounded-full">
+                    <div class="progress-fill h-full md:w-full md:h-0" style="width: 0%;" id="progressFill"></div>
+                    <!-- Create 10 lines for visual division -->
+                    <div class="absolute inset-0 flex flex-row md:flex-col">
+                        <div class="progress-step border-r-2 md:border-r-0 md:border-b-2 h-full w-[10%] md:h-[10%] md:w-full border-dashed border-white/50 box-border"></div>
+                        <div class="progress-step border-r-2 md:border-r-0 md:border-b-2 h-full w-[10%] md:h-[10%] md:w-full border-dashed border-white/50 box-border"></div>
+                        <div class="progress-step border-r-2 md:border-r-0 md:border-b-2 h-full w-[10%] md:h-[10%] md:w-full border-dashed border-white/50 box-border"></div>
+                        <div class="progress-step border-r-2 md:border-r-0 md:border-b-2 h-full w-[10%] md:h-[10%] md:w-full border-dashed border-white/50 box-border"></div>
+                        <div class="progress-step border-r-2 md:border-r-0 md:border-b-2 h-full w-[10%] md:h-[10%] md:w-full border-dashed border-white/50 box-border"></div>
+                        <div class="progress-step border-r-2 md:border-r-0 md:border-b-2 h-full w-[10%] md:h-[10%] md:w-full border-dashed border-white/50 box-border"></div>
+                        <div class="progress-step border-r-2 md:border-r-0 md:border-b-2 h-full w-[10%] md:h-[10%] md:w-full border-dashed border-white/50 box-border"></div>
+                        <div class="progress-step border-r-2 md:border-r-0 md:border-b-2 h-full w-[10%] md:h-[10%] md:w-full border-dashed border-white/50 box-border"></div>
+                        <div class="progress-step border-r-2 md:border-r-0 md:border-b-2 h-full w-[10%] md:h-[10%] md:w-full border-dashed border-white/50 box-border"></div>
+                        <div class="progress-step h-full w-[10%] md:h-[10%] md:w-full box-border border-none"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="text-3xl ml-4 md:ml-0 md:mt-4" id="progressStar">⭐</div>
+        </div>
+    </div>
+
+    <!-- 3. END SCREEN -->
+    <div id="endScreen" class="hidden fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#E2F0CB] p-6 text-center overflow-y-auto">
+        <h1 class="text-6xl font-black text-[#FFB7B2] mb-4 drop-shadow-md animate-bounce">好叻呀！🎉</h1>
+        <h2 class="text-3xl font-bold text-gray-600 mb-8">你完成咗啦！(You finished!)</h2>
+        
+        <div class="bg-white p-10 rounded-3xl shadow-xl max-w-md w-full border-4 border-[#B5EAD7] mb-8">
+            <p class="text-2xl text-gray-500 font-bold mb-2">你的總成績</p>
+            <p class="text-6xl font-black text-[#B5EAD7]" id="finalScoreDisplay">8 / 10</p>
+        </div>
+
+        <button id="replayBtn" class="bg-[#C7CEEA] hover:bg-[#b0b8dd] text-white font-bold py-4 px-12 rounded-full text-2xl shadow-lg transform transition hover:scale-105 active:scale-95">
+            再玩一次 (Play Again)
+        </button>
+    </div>
+
+    <!-- GAME LOGIC -->
+    <script>
+        // Therapeutic Stimuli Data
+        const stimuliData = [
+            {name: '垃圾桶', emoji: '🗑️', classifier: '個'},
+            {name: '曱甴', emoji: '🪳', classifier: '隻'},
+            {name: '蝦', emoji: '🦐', classifier: '隻'},
+            {name: '甲蟲', emoji: '🪲', classifier: '隻'},
+            {name: '毛毛蟲', emoji: '🐛', classifier: '條'},
+            {name: '遙控', emoji: '🕹️🎮', classifier: '個'},
+            {name: '指甲鉗', emoji: '', classifier: '個'},
+            {name: '三文治', emoji: '🥪', classifier: '個'},
+            {name: '膠袋', emoji: '🛍️', classifier: '個'},
+            {name: '環保袋', emoji: '👜', classifier: '個'},
+            {name: '書包', emoji: '🎒', classifier: '個'},
+            {name: '筆袋', emoji: '👝', classifier: '個'},
+            {name: '日曆', emoji: '📅', classifier: '個'},
+            {name: '喇叭', emoji: '🔊', classifier: '個'},
+            {name: '勾', emoji: '🪝', classifier: '個'},
+            {name: '櫃桶', emoji: '🗄️', classifier: '個'},
+            {name: '粉擦', emoji: '', classifier: '個'},
+            {name: '暖包', emoji: '', classifier: '個'},
+            {name: '衫架', emoji: '', classifier: '個'},
+            {name: '漢堡包', emoji: '🍔', classifier: '個'},
+            {name: '手機殼', emoji: '', classifier: '個'},
+            {name: '饅頭', emoji: '', classifier: '個'},
+            {name: '保安員', emoji: '👮', classifier: '個'},
+            {name: '老師', emoji: '🧑‍🏫', classifier: '個'},
+            {name: '螞蟻', emoji: '🐜', classifier: '隻'},
+            {name: '左眼', emoji: '👁️', classifier: '隻'},
+            {name: '右眼', emoji: '👁️', classifier: '隻'},
+            {name: '左耳', emoji: '👂', classifier: '隻'},
+            {name: '右耳', emoji: '👂', classifier: '隻'},
+            {name: '碟', emoji: '🍽️', classifier: '隻'},
+            {name: '鑊', emoji: '🍳', classifier: '隻'},
+            {name: '手錶', emoji: '⌚', classifier: '隻'},
+            {name: '蘋果', emoji: '🍎', classifier: '個/隻'}
+        ];
+
+        // Game State
+        const TOTAL_ROUNDS = 10;
+        let currentRound = 1;
+        let correctCount = 0;
+        let isBoxOpened = false;
+        let isEmptyBox = false;
+        
+        // DOM Elements
+        const screens = {
+            start: document.getElementById('startScreen'),
+            game: document.getElementById('gameScreen'),
+            end: document.getElementById('endScreen')
+        };
+        const displays = {
+            round: document.getElementById('roundDisplay'),
+            score: document.getElementById('scoreDisplay'),
+            finalScore: document.getElementById('finalScoreDisplay'),
+            progressFill: document.getElementById('progressFill'),
+            progressStar: document.getElementById('progressStar')
+        };
+        const boxElements = {
+            container: document.getElementById('boxContainer'),
+            lid: document.getElementById('boxLid'),
+            body: document.getElementById('boxBody'),
+            canvas: document.getElementById('sliceCanvas')
+        };
+        const revealElements = {
+            area: document.getElementById('revealArea'),
+            itemDisplay: document.getElementById('itemDisplay'),
+            itemText: document.getElementById('itemText'),
+            emptyMessage: document.getElementById('emptyMessage'),
+            controls: document.getElementById('therapistControls'),
+            nextBtn: document.getElementById('nextRoundBtn'),
+            sliceHint: document.getElementById('sliceHint')
+        };
+
+        // --- Canvas Slicing Logic ---
+        const ctx = boxElements.canvas.getContext('2d');
+        let isDrawing = false;
+        let sliceStart = { x: 0, y: 0 };
+        
+        function resizeCanvas() {
+            boxElements.canvas.width = boxElements.container.clientWidth;
+            boxElements.canvas.height = boxElements.container.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        function getPointerPos(e) {
+            const rect = boxElements.canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            };
+        }
+
+        function startDrawing(e) {
+            if (isBoxOpened) return;
+            e.preventDefault();
+            isDrawing = true;
+            const pos = getPointerPos(e);
+            sliceStart = pos;
+            
+            ctx.clearRect(0, 0, boxElements.canvas.width, boxElements.canvas.height);
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+            ctx.lineWidth = 6;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = '#FFB7B2'; // Pastel red line
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#FFB7B2';
+        }
+
+        function draw(e) {
+            if (!isDrawing || isBoxOpened) return;
+            e.preventDefault();
+            const pos = getPointerPos(e);
+            
+            ctx.clearRect(0, 0, boxElements.canvas.width, boxElements.canvas.height);
+            ctx.beginPath();
+            ctx.moveTo(sliceStart.x, sliceStart.y);
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+        }
+
+        function stopDrawing(e) {
+            if (!isDrawing || isBoxOpened) return;
+            isDrawing = false;
+            
+            // Allow touchend which doesn't have touches[0]
+            const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+            const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+            const rect = boxElements.canvas.getBoundingClientRect();
+            const pos = { x: clientX - rect.left, y: clientY - rect.top };
+
+            const distanceX = Math.abs(pos.x - sliceStart.x);
+            const distanceY = Math.abs(pos.y - sliceStart.y);
+
+            // Did they slice mostly horizontally and long enough?
+            if (distanceX > 100 && distanceY < 150) {
+                openBox();
+            } else {
+                // Shake if failed slice
+                ctx.clearRect(0, 0, boxElements.canvas.width, boxElements.canvas.height);
+                boxElements.container.classList.add('animate-shake');
+                setTimeout(() => boxElements.container.classList.remove('animate-shake'), 400);
+            }
+        }
+
+        // Attach Canvas Events
+        boxElements.canvas.addEventListener('mousedown', startDrawing);
+        boxElements.canvas.addEventListener('mousemove', draw);
+        boxElements.canvas.addEventListener('mouseup', stopDrawing);
+        boxElements.canvas.addEventListener('mouseleave', () => { isDrawing = false; ctx.clearRect(0,0,boxElements.canvas.width, boxElements.canvas.height); });
+        
+        boxElements.canvas.addEventListener('touchstart', startDrawing, {passive: false});
+        boxElements.canvas.addEventListener('touchmove', draw, {passive: false});
+        boxElements.canvas.addEventListener('touchend', stopDrawing);
+
+        // --- Game Flow Logic ---
+
+        function startGame() {
+            // Resume AudioContext on first user interaction
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            
+            currentRound = 1;
+            correctCount = 0;
+            isEmptyBox = false;
+            updateUI();
+            
+            screens.start.classList.add('hidden');
+            screens.end.classList.add('hidden');
+            screens.game.classList.remove('hidden');
+            
+            resetBox();
+        }
+
+        function openBox() {
+            isBoxOpened = true;
+            sounds.slice();
+            ctx.clearRect(0, 0, boxElements.canvas.width, boxElements.canvas.height);
+            
+            // Animate lid
+            boxElements.lid.classList.add('open');
+            revealElements.sliceHint.classList.add('hidden');
+            
+            setTimeout(() => {
+                sounds.pop();
+                determineContents();
+            }, 400);
+        }
+
+        function determineContents() {
+            const isPresent = Math.random() < 0.9; // 90% chance
+            isEmptyBox = !isPresent;
+            
+            revealElements.area.classList.remove('hidden');
+            revealElements.itemDisplay.innerHTML = '';
+            
+            if (isPresent) {
+                // Generate Items
+                const randomStimulus = stimuliData[Math.floor(Math.random() * stimuliData.length)];
+                const count = Math.floor(Math.random() * 10) + 1; // 1 to 10
+                
+                // Build Emojis
+                for(let i=0; i<count; i++) {
+                    const span = document.createElement('span');
+                    span.innerText = randomStimulus.emoji;
+                    span.className = "opacity-0";
+                    span.style.animation = `popOut 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) ${i * 0.05}s forwards`;
+                    revealElements.itemDisplay.appendChild(span);
+                }
+                
+                revealElements.itemText.innerText = `x ${count} ${randomStimulus.name}`;
+                revealElements.itemText.classList.remove('hidden');
+                revealElements.emptyMessage.classList.add('hidden');
+                
+                revealElements.controls.classList.remove('hidden');
+                revealElements.nextBtn.classList.add('hidden');
+            } else {
+                // Empty Box
+                sounds.empty();
+                revealElements.itemText.classList.add('hidden');
+                revealElements.emptyMessage.classList.remove('hidden');
+                revealElements.emptyMessage.classList.add('animate-pop');
+                
+                revealElements.controls.classList.add('hidden');
+                revealElements.nextBtn.innerText = "再抽一次 (Try Again)";
+                revealElements.nextBtn.classList.remove('hidden');
+            }
+        }
+
+        function handleAnswer(isCorrect) {
+            if (isCorrect) {
+                sounds.correct();
+                correctCount++;
+                displays.progressStar.classList.add('animate-pop');
+                setTimeout(() => displays.progressStar.classList.remove('animate-pop'), 600);
+            } else {
+                sounds.incorrect();
+            }
+            
+            updateUI();
+            revealElements.controls.classList.add('hidden');
+            revealElements.nextBtn.innerText = "下一回合 (Next)";
+            revealElements.nextBtn.classList.remove('hidden');
+        }
+
+        function nextRound() {
+            if (isEmptyBox) {
+                resetBox();
+            } else {
+                if (currentRound >= TOTAL_ROUNDS) {
+                    endGame();
+                } else {
+                    currentRound++;
+                    updateUI();
+                    resetBox();
+                }
+            }
+        }
+
+        function resetBox() {
+            isBoxOpened = false;
+            boxElements.lid.classList.remove('open');
+            revealElements.area.classList.add('hidden');
+            revealElements.sliceHint.classList.remove('hidden');
+            resizeCanvas();
+            
+            // Give box a slight random color tint for variety
+            const colors = ['#FFB7B2', '#FFDAC1', '#FDFD96', '#E2F0CB', '#B5EAD7', '#C7CEEA'];
+            boxElements.body.style.background = `linear-gradient(135deg, ${colors[Math.floor(Math.random()*colors.length)]} 0%, #fff 100%)`;
+        }
+
+        function updateUI() {
+            displays.round.innerText = currentRound;
+            displays.score.innerText = correctCount;
+            // Update progress bar
+            const percentage = (correctCount / TOTAL_ROUNDS) * 100;
+            // Support both horizontal (mobile) and vertical (desktop) progress bar
+            if (window.innerWidth >= 768) {
+                displays.progressFill.style.height = `${percentage}%`;
+                displays.progressFill.style.width = '100%';
+            } else {
+                displays.progressFill.style.width = `${percentage}%`;
+                displays.progressFill.style.height = '100%';
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            resizeCanvas();
+            updateUI(); // Keep progress bar correctly oriented on resize
+        });
+
+        function endGame() {
+            sounds.tada();
+            screens.game.classList.add('hidden');
+            screens.end.classList.remove('hidden');
+            displays.finalScore.innerText = `${correctCount} / ${TOTAL_ROUNDS}`;
+            createConfetti();
+        }
+
+        function createConfetti() {
+            const colors = ['#FFB7B2', '#FFDAC1', '#FDFD96', '#E2F0CB', '#B5EAD7', '#C7CEEA'];
+            for(let i=0; i<100; i++) {
+                const conf = document.createElement('div');
+                conf.className = 'confetti';
+                conf.style.left = Math.random() * 100 + 'vw';
+                conf.style.top = -10 + 'px';
+                conf.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                conf.style.animationDuration = (Math.random() * 3 + 2) + 's';
+                conf.style.animationDelay = (Math.random() * 2) + 's';
+                screens.end.appendChild(conf);
+                
+                // Cleanup
+                setTimeout(() => conf.remove(), 5000);
+            }
+        }
+
+        function goHome() {
+            screens.game.classList.add('hidden');
+            screens.end.classList.add('hidden');
+            screens.start.classList.remove('hidden');
+            currentRound = 1;
+            correctCount = 0;
+            isEmptyBox = false;
+            resetBox();
+        }
+
+        // Event Listeners for Buttons
+        document.getElementById('startBtn').addEventListener('click', startGame);
+        document.getElementById('homeBtn').addEventListener('click', goHome);
+        document.getElementById('correctBtn').addEventListener('click', () => handleAnswer(true));
+        document.getElementById('incorrectBtn').addEventListener('click', () => handleAnswer(false));
+        document.getElementById('nextRoundBtn').addEventListener('click', nextRound);
+        document.getElementById('replayBtn').addEventListener('click', startGame);
+
+        // Init
+        resizeCanvas();
+
+    </script>
+</body>
+</html>
